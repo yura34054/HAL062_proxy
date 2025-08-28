@@ -1,55 +1,46 @@
 import asyncio
+import serial_asyncio
 import sys
-from collections import deque
-
 
 MESSAGE_WIDTH = 19
-BACKEND_HOST = 'localhost'
-BACKEND_PORT = 5000
+SERIAL_PORT = '/dev/serial0'
+SERIAL_BAUDRATE = 115200
 LISTEN_PORTS = [8888, 8889]
+
 
 # Store connected clients
 client_writers = {}
-backend_queue = asyncio.Queue()
-feedback_queue = asyncio.Queue()
+uart_write_queue = asyncio.Queue()
+uart_read_queue = asyncio.Queue()
+
+# ===== UART HANDLERS =====
+class UARTProtocol(asyncio.Protocol):
+    def connection_made(self, transport):
+        self.transport = transport
+        print(f"UART connected: {SERIAL_PORT} @ {SERIAL_BAUDRATE}")
+
+    def data_received(self, data):
+        asyncio.create_task(uart_read_queue.put(data))
+
+    def connection_lost(self, exc):
+        print("UART connection lost")
+        sys.exit(1)
 
 
-async def backend_writer_task(backend_writer: asyncio.StreamWriter):
+async def uart_writer_task(uart_transport):
     while True:
-        try:
-            data = await backend_queue.get()
-            backend_writer.write(data)
-            await backend_writer.drain()
+        data = await uart_write_queue.get()
+        print(f"sending {data}")
+        uart_transport.write(data)
 
-        except ConnectionResetError:
-            sys.exit("Backend disconnected, stopping.")
-
-
-async def backend_reader_task(backend_reader):
+async def uart_reader_task():
     while True:
-        try:
-            data = await backend_reader.read(MESSAGE_WIDTH)
-            if not data: break
-
-            await feedback_queue.put(data)
-
-        finally:
-            sys.exit("Backend disconnected, stopping.")
-
-
-async def client_feedback():
-    while True:
-        try:
-            writers = list(client_writers.values())
-            data = await feedback_queue.get()
-
-            for writer in writers:
-                writer.write(data)
-
-            await asyncio.gather(*[writer.drain() for writer in writers])
-
-        except ConnectionResetError:
-            pass
+        data = await uart_read_queue.get()
+        # Przekazanie danych do wszystkich klientów TCP
+        writers = list(client_writers.values())
+        for writer in writers:
+            writer.write(data)
+        await asyncio.gather(*[writer.drain() for writer in writers])
 
 
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -63,9 +54,13 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     try:
         while True:
             data = await reader.read(MESSAGE_WIDTH)
-            if not data: break 
+            if not data: break
 
-            await backend_queue.put(data)
+            if (data[0] != b'#') or (data.len() != MESSAGE_WIDTH):
+                print("wrong message format recived")
+                continue
+
+            await uart_write_queue.put(data)
 
     finally:
         writer.close()
@@ -76,14 +71,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
 
 async def start_servers():
-    # Connect to backend once
-    backend_reader, backend_writer = await asyncio.open_connection(BACKEND_HOST, BACKEND_PORT)
-    print(f"Connected to backend {BACKEND_HOST}:{BACKEND_PORT}")
+    # Start UART connection
+    loop = asyncio.get_running_loop()
+    transport, protocol = await serial_asyncio.create_serial_connection(
+        loop, UARTProtocol, SERIAL_PORT, SERIAL_BAUDRATE
+    )
 
-    # Start backend handler tasks
-    asyncio.create_task(backend_writer_task(backend_writer))
-    asyncio.create_task(backend_reader_task(backend_reader))
-    asyncio.create_task(client_feedback())
+    asyncio.create_task(uart_writer_task(transport))
+    asyncio.create_task(uart_reader_task())
 
     # Listen on multiple ports
     for port in LISTEN_PORTS:
@@ -101,3 +96,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nProxy stopped.")
 
+        

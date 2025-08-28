@@ -4,13 +4,14 @@ from collections import deque
 from queue import Queue, Empty
 import threading
 import signal
+import readline
+
 
 MESSAGE_WIDTH = 19
 
 # Target IP and port
-BACKEND_HOST = 'localhost'
-BACKEND_PORT = 8888
-MESSAGE = "#16" + "010101XXXXXXXXXX"
+BACKEND_HOST = '192.168.1.98'
+BACKEND_PORT = 8889
 
 tx_queue = Queue()
 rx_queue = deque()
@@ -23,8 +24,9 @@ async def backend_writer_task(backend_writer: asyncio.StreamWriter):
             continue
 
         try:
-            data = tx_queue.get(block=True, timeout=0.1).encode('utf-8')
-            backend_writer.write(data)
+            data = tx_queue.get(block=True, timeout=0.1)
+            print_above(f"sending: {data}")
+            backend_writer.write(data.encode('utf-8'))
             await backend_writer.drain()
 
         except Empty:
@@ -41,15 +43,49 @@ async def backend_reader_task(backend_reader):
             data = await backend_reader.read(MESSAGE_WIDTH)
             if not data: break 
             
+
             rx_queue.append(data)
 
     finally:
         sys.exit("Backend disconnected, stopping.")
 
 
+commands = {
+        "sensor.tare.1":    "#780001XXXXXXXXXXXX",
+        "sensor.tare.2":    "#780002XXXXXXXXXXXX",
+        "sensor.tare.3":    "#780003XXXXXXXXXXXX",
+
+        "sensor.lamp.1":    "#7801XXXXXXXXXXXXXX",
+        "sensor.lamp.2":    "#7802XXXXXXXXXXXXXX",
+
+        "lab.move.up":      "#CB010000640000XXXX",
+        "lab.move.down":    "#CB020000640000XXXX", 
+        "lab.drill.up":     "#CB000202005050XXXX",
+        "lab.drill.down":   "#CB000102005050XXXX",
+        "lab.stop":         "#CB000000000000XXXX",
+}
+
+def completer(text, state):
+    options = [command for command in list(commands.keys()) if command.startswith(text)]
+    return options[state] if state < len(options) else None
+
+
 def user_input_reader(input_queue):
+    readline.parse_and_bind("tab: complete")
+    readline.set_auto_history(True)
+    readline.set_completer(completer)
+
     while True:
-        input_queue.put(input())
+        inp = input()
+        if inp not in commands:
+            print_above("> invalid command")
+            continue
+
+        input_queue.put(commands[inp])
+
+
+def print_above(text):
+    print(f"\u001B[s\u001B[A\u001B[999D\u001B[S\u001B[L{text}\u001B[u", end="", flush=True)
 
 
 async def output_writer():
@@ -58,7 +94,19 @@ async def output_writer():
             await asyncio.sleep(0.1)
             continue
 
-        print(f"\u001B[s\u001B[A\u001B[999D\u001B[S\u001B[L> {rx_queue.popleft().decode('utf-8')}\u001B[u", end="", flush=True)
+        data = rx_queue.popleft()
+        
+        data = data.decode('utf-8')
+        if data[0] != '#' or len(data) != 19:
+            print_above("invalid message")
+            continue
+
+        id, data = int(data[1:3], 16), data[3:]
+
+        if id in (121, 122, 123):
+            data = int(data[2:10], 16)
+
+        print_above(f"> {id} | {data}")
 
 
 async def start_servers():
