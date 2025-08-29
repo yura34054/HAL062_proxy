@@ -63,6 +63,9 @@ commands = {
         "lab.drill.up":     "#CB000202005050XXXX",
         "lab.drill.down":   "#CB000102005050XXXX",
         "lab.stop":         "#CB000000000000XXXX",
+
+        "app.filter.mani":  0,
+        "app.filter.weight": 0,
 }
 
 
@@ -78,6 +81,12 @@ def user_input_reader(input_queue):
 
     while True:
         inp = input()
+
+        if inp == "app.filter.mani" or inp == "app.filter.weight":
+            commands[inp] = not commands[inp]
+            print_above(f"filter {inp} {"On" if commands[inp] else "Off"}")
+            continue
+
         if inp not in commands:
             print_above("> invalid command")
             continue
@@ -103,6 +112,12 @@ async def output_writer():
             continue
 
         id, data = int(data[1:3], 16), data[3:]
+
+        if commands["app.filter.mani"] and id in (158, 159, 160, 161, 162, 163):
+            continue 
+
+        if commands["app.filter.weight"] and id in (121, 122, 123):
+            continue
 
         if id in (121, 122, 123):
             data = int(data[2:10], 16)
