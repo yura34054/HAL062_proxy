@@ -11,7 +11,7 @@ MESSAGE_WIDTH = 19
 
 # Target IP and port
 BACKEND_HOST = '192.168.1.98'
-BACKEND_PORT = 8889
+BACKEND_PORT = 8890
 
 tx_queue = Queue()
 rx_queue = deque()
@@ -65,6 +65,7 @@ commands = {
         "lab.stop":         "#CB000000000000XXXX",
 }
 
+
 def completer(text, state):
     options = [command for command in list(commands.keys()) if command.startswith(text)]
     return options[state] if state < len(options) else None
@@ -105,6 +106,7 @@ async def output_writer():
 
         if id in (121, 122, 123):
             data = int(data[2:10], 16)
+            data = data if data < 0xdfffffff else data-0xffffffff 
 
         print_above(f"> {id} | {data}")
 

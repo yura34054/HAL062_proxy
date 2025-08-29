@@ -5,7 +5,7 @@ import sys
 MESSAGE_WIDTH = 19
 SERIAL_PORT = '/dev/serial0'
 SERIAL_BAUDRATE = 115200
-LISTEN_PORTS = [8888, 8889]
+LISTEN_PORTS = [8888, 8889, 8890, 8891]
 
 
 # Store connected clients
@@ -13,29 +13,17 @@ client_writers = {}
 uart_write_queue = asyncio.Queue()
 uart_read_queue = asyncio.Queue()
 
-# ===== UART HANDLERS =====
-class UARTProtocol(asyncio.Protocol):
-    def connection_made(self, transport):
-        self.transport = transport
-        print(f"UART connected: {SERIAL_PORT} @ {SERIAL_BAUDRATE}")
 
-    def data_received(self, data):
-        asyncio.create_task(uart_read_queue.put(data))
-
-    def connection_lost(self, exc):
-        print("UART connection lost")
-        sys.exit(1)
-
-
-async def uart_writer_task(uart_transport):
-    while True:
+async def uart_writer_task(uart_writer):
+   while True:
         data = await uart_write_queue.get()
-        print(f"sending {data}")
-        uart_transport.write(data)
+        uart_writer.write(data)
+        await uart_writer.drain()
 
-async def uart_reader_task():
+
+async def uart_reader_task(uart_reader):
     while True:
-        data = await uart_read_queue.get()
+        data = await uart_reader.readexactly(MESSAGE_WIDTH)
         # Przekazanie danych do wszystkich klientów TCP
         writers = list(client_writers.values())
         for writer in writers:
@@ -56,10 +44,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             data = await reader.read(MESSAGE_WIDTH)
             if not data: break
 
-            if (data[0] != b'#') or (data.len() != MESSAGE_WIDTH):
-                print("wrong message format recived")
-                continue
-
             await uart_write_queue.put(data)
 
     finally:
@@ -73,12 +57,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 async def start_servers():
     # Start UART connection
     loop = asyncio.get_running_loop()
-    transport, protocol = await serial_asyncio.create_serial_connection(
-        loop, UARTProtocol, SERIAL_PORT, SERIAL_BAUDRATE
-    )
+    reader, writer = await serial_asyncio.open_serial_connection(url=SERIAL_PORT, baudrate=SERIAL_BAUDRATE)
 
-    asyncio.create_task(uart_writer_task(transport))
-    asyncio.create_task(uart_reader_task())
+    asyncio.create_task(uart_writer_task(writer))
+    asyncio.create_task(uart_reader_task(reader))
 
     # Listen on multiple ports
     for port in LISTEN_PORTS:
@@ -96,4 +78,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nProxy stopped.")
 
-        
