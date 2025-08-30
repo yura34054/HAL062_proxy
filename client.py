@@ -51,21 +51,26 @@ async def backend_reader_task(backend_reader):
 
 
 commands = {
+        "app.filter.mani":  1,
+        "app.filter.weight": 0,
+
         "sensor.tare.1":    "#780001XXXXXXXXXXXX",
         "sensor.tare.2":    "#780002XXXXXXXXXXXX",
         "sensor.tare.3":    "#780003XXXXXXXXXXXX",
 
-        "sensor.lamp.1":    "#7801XXXXXXXXXXXXXX",
-        "sensor.lamp.2":    "#7802XXXXXXXXXXXXXX",
+        "sensor.lamp.on":   "#7801XXXXXXXXXXXXXX",
+        "sensor.lamp.off":  "#7802XXXXXXXXXXXXXX",
+        "sensor.lamp.1":    "#3201000001XXXXXXXX",
+        "sensor.lamp.2":    "#3200000101XXXXXXXX",
 
-        "lab.move.up":      "#CB010000640000XXXX",
-        "lab.move.down":    "#CB020000640000XXXX", 
-        "lab.drill.up":     "#CB000202005050XXXX",
-        "lab.drill.down":   "#CB000102005050XXXX",
+        "lab.move.up":      "#CB020000640000XXXX",
+        "lab.move.down":    "#CB010000640000XXXX", 
+        "lab.drill.up":     "#CB000102005050XXXX",
+        "lab.drill.down":   "#CB000202005050XXXX",
         "lab.stop":         "#CB000000000000XXXX",
 
-        "app.filter.mani":  0,
-        "app.filter.weight": 0,
+        "ph.start":         "#C101XXXXXXXXXXXXXX",
+        "ph.stop":          "#C100XXXXXXXXXXXXXX",
 }
 
 
@@ -121,7 +126,10 @@ async def output_writer():
 
         if id in (121, 122, 123):
             data = int(data[2:10], 16)
-            data = data if data < 0xdfffffff else data-0xffffffff 
+            data = data if data < 0xdfffffff else data-0xffffffff
+
+        if id == 192:
+            data =  int(data[:2], 16) / 10
 
         print_above(f"> {id} | {data}")
 
